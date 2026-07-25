@@ -100,7 +100,6 @@ class SupabaseCodeRepository:
             "p_trial": trial,
             "p_expires_at": expires_at.isoformat() if expires_at else None,
             "p_passphrase": self._passphrase,
-            "p_moderator_id": moderator_id,
         }
         resp = self._session.post(
             f"{self._base_url}/rest/v1/rpc/ck_create_code",
@@ -229,7 +228,6 @@ class SupabaseModeratorRepository:
         can_decrypt: bool,
     ) -> None:
         payload = {
-            "p_moderator_id": moderator_id,
             "p_external_id": external_id,
             "p_display_name": display_name,
             "p_can_encrypt_server": can_encrypt_server,
