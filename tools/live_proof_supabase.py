@@ -33,10 +33,10 @@ sys.path.insert(0, _ADAPTERS_DIR)
 # ============================================================
 # عبّي هذي القيم الأربع قبل التشغيل
 # ============================================================
-os.environ["ADMIN_TOKEN"] = "ضع_اي_توكن_ادارة_تختاره_هنا"
-os.environ["SUPABASE_URL"] = "ضع_رابط_مشروعك_هنا"
-os.environ["SUPABASE_SERVICE_KEY"] = "ضع_مفتاح_service_role_هنا"
-os.environ["CIPHERKEEP_MASTER_KEY"] = "ضع_عبارة_سرية_من_عندك_هنا"
+os.environ["ADMIN_TOKEN"] = "CipherKeep_Admin_2026_X9m!Secure"
+os.environ["SUPABASE_URL"] = "https://YOUR_PROJECT.supabase.co"
+os.environ["SUPABASE_SERVICE_KEY"] = "YOUR_SUPABASE_SERVICE_ROLE_KEY"
+os.environ["CIPHERKEEP_MASTER_KEY"] = "CipherKeep_Master_2026_7x!A9#QmL2@Secure"
 # ============================================================
 
 if "ضع_" in os.environ["SUPABASE_URL"]:

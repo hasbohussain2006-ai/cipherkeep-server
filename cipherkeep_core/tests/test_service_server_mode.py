@@ -95,7 +95,7 @@ class TestServerModeService(unittest.TestCase):
         self.assertFalse(result.ok)
         self.assertEqual(result.reason, "revoked")
 
-    def test_device_limit_short_circuits_before_decrypt(self):
+    def test_invalid_ciphertext_fails_before_device_limit_check(self):
         key = os.urandom(32)
         self.core.create_code("ABC-123", key_material=key, max_devices=1)
         blob = _build_test_blob(key, "secret.py", b"x = 1")
@@ -103,7 +103,7 @@ class TestServerModeService(unittest.TestCase):
 
         result = self.service.verify_and_decrypt("ABC-123", "device-2", b"garbage")
         self.assertFalse(result.ok)
-        self.assertEqual(result.reason, "device_limit_reached")
+        self.assertEqual(result.reason, "decrypt_error")
 
     def test_valid_device_but_corrupted_ciphertext_returns_decrypt_error(self):
         key = os.urandom(32)
@@ -113,10 +113,8 @@ class TestServerModeService(unittest.TestCase):
 
         self.assertFalse(result.ok)
         self.assertEqual(result.reason, "decrypt_error")
-        # الجهاز بالفعل انسجّل قبل محاولة فك التشفير (نفس ترتيب Core) —
-        # is_new_device يُحفَظ رغم فشل فك التشفير، عشان الـAdapter يقدر
-        # يقرر صح لو احتاجها لاحقًا.
-        self.assertTrue(result.is_new_device)
+        # بعد إصلاح R1: لا حجز يحدث إطلاقًا قبل نجاح فك التشفير.
+        self.assertFalse(result.is_new_device)
 
     def test_wrong_key_material_returns_decrypt_error_not_crash(self):
         real_key = os.urandom(32)

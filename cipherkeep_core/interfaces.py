@@ -10,7 +10,7 @@ Core يعرف فقط هذي التوقيعات، ولا يعرف شيئًا عن
 القرار المعتمد بالوثيقة — لا حاجة لإطار حقن تبعيات بحجم هذا المشروع.
 """
 
-from typing import Protocol, Optional
+from typing import Protocol, Optional, List
 from datetime import datetime
 
 from .models import LicenseCode, DeviceClaimStatus, Moderator
@@ -91,4 +91,20 @@ class ModeratorRepository(Protocol):
 
     def get_by_external_id(self, external_id: str) -> Optional[Moderator]:
         """يرجع سجل المشرف المطابق لهذا المعرّف الخارجي، أو None."""
+        ...
+
+
+class CodeQueryRepository(Protocol):
+    """
+    واجهة استعلام إدارية — مضافة لإصلاح C1 (Kill Switch). منفصلة
+    تمامًا عن CodeRepository عمدًا: CodeRepository مسؤول عن عمليات
+    الـAggregate الفردية (create/get/revoke/extend لكود واحد بمعرفه)،
+    بينما هذي الواجهة مسؤولة حصرًا عن استعلام جماعي إداري (سرد كل
+    الأكواد) لا علاقة له بمنطق الـAggregate نفسه — فصل مسؤوليات
+    واعٍ، لا توسيع لواجهة قائمة بمسؤولية مختلفة عنها جوهريًا.
+    """
+
+    def list_all_codes(self) -> List[str]:
+        """يرجع كل رموز الأكواد الموجودة — لأغراض إدارية جماعية فقط
+        (مثل kill-switch)، لا لأي قرار عمل فردي."""
         ...

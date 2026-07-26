@@ -100,6 +100,7 @@ class SupabaseCodeRepository:
             "p_trial": trial,
             "p_expires_at": expires_at.isoformat() if expires_at else None,
             "p_passphrase": self._passphrase,
+            "p_moderator_id": moderator_id,
         }
         resp = self._session.post(
             f"{self._base_url}/rest/v1/rpc/ck_create_code",
@@ -228,6 +229,7 @@ class SupabaseModeratorRepository:
         can_decrypt: bool,
     ) -> None:
         payload = {
+            "p_moderator_id": moderator_id,
             "p_external_id": external_id,
             "p_display_name": display_name,
             "p_can_encrypt_server": can_encrypt_server,
@@ -262,3 +264,37 @@ class SupabaseModeratorRepository:
             can_decrypt=row["can_decrypt"],
             created_at=_parse_ts(row["created_at"]),
         )
+
+
+class SupabaseCodeQueryRepository:
+    """
+    تنفيذ فعلي لـCodeQueryRepository — مضافة لإصلاح C1 (Kill Switch).
+
+    بعكس SupabaseCodeRepository/SupabaseDeviceRepository (اللي تستدعي
+    دوال RPC مخصَّصة)، هذي الطبقة تستخدم نقطة REST القياسية التلقائية
+    لـPostgREST مباشرة (GET /rest/v1/codes?select=code) — بلا حاجة
+    لكتابة أو تطبيق أي دالة SQL جديدة على Supabase. أي جدول Postgres
+    مكشوف بمخطط public يُتاح تلقائيًا بهذي الطريقة ما لم يُعطَّل صراحة.
+    """
+
+    def __init__(
+        self,
+        base_url: Optional[str] = None,
+        service_key: Optional[str] = None,
+        session: Optional[requests.Session] = None,
+    ):
+        self._base_url = (base_url or _require_env("SUPABASE_URL")).rstrip("/")
+        self._service_key = service_key or _require_env("SUPABASE_SERVICE_KEY")
+        self._session = session or requests
+        self._headers = _build_auth_headers(self._service_key)
+
+    def list_all_codes(self):
+        resp = self._session.get(
+            f"{self._base_url}/rest/v1/codes",
+            params={"select": "code"},
+            headers=self._headers,
+            timeout=15,
+        )
+        _check(resp, "سرد كل الأكواد من Supabase")
+        rows = resp.json()
+        return [row["code"] for row in rows]

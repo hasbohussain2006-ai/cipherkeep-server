@@ -3,6 +3,7 @@
 from dataclasses import dataclass
 from datetime import datetime
 from enum import Enum
+from typing import Optional
 
 
 class DeviceClaimStatus(str, Enum):
@@ -22,3 +23,14 @@ class DeviceRecord:
     device_fingerprint: str
     first_seen_at: datetime
     last_seen_at: datetime
+
+
+@dataclass(frozen=True)
+class DeviceRegistrationResult:
+    """
+    نتيجة عملية CipherKeepCore.register_device — مضافة لإصلاح R1
+    (استنزاف سلوتات الأجهزة بلا مادة تشفير صحيحة).
+    """
+    ok: bool
+    reason: Optional[str] = None
+    claim_status: Optional[DeviceClaimStatus] = None

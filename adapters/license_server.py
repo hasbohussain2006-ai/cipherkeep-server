@@ -59,6 +59,7 @@ import threading
 import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from typing import Protocol
 
 # bootstrap: هذا الملف انتقل إلى adapters/ ضمن إعادة الهيكلة الاحترافية
 # (Baseline Consolidation). cipherkeep_core/cipherkeep_dal يعيشان بجذر
@@ -73,8 +74,13 @@ try:
 except ImportError:
     requests = None
 
-from cipherkeep_core import CipherKeepCore, ServerModeService
-from cipherkeep_dal import SupabaseCodeRepository, SupabaseDeviceRepository
+from cipherkeep_core import CipherKeepCore, ServerModeService, RepositoryNotConfigured
+from cipherkeep_dal import (
+    SupabaseCodeRepository,
+    SupabaseDeviceRepository,
+    SupabaseCodeQueryRepository,
+    SupabaseRequestError,
+)
 
 
 # ── يجب أن يطابق نفس الثوابت الموجودة بأداة CipherKeep (encryptor.py) ──
@@ -85,6 +91,15 @@ DATA_FILE = Path(__file__).parent / "licenses.json"
 LOG_FILE = Path(__file__).parent / "activity.log"
 
 ADMIN_TOKEN = os.environ.get("ADMIN_TOKEN", "")
+# إصلاح H2: بنية قابلة للتوسع لدعم تدوير ADMIN_TOKEN مستقبلًا --
+# معطَّلة افتراضيًا تمامًا (القيمة الافتراضية فارغة، فالسلوك الحالي
+# يبقى مطابقًا حرفيًا ما لم تُفعَّل صراحة). التفعيل: عبّ متغيّر بيئة
+# ADMIN_TOKENS_ROTATION بتوكنات إضافية صالحة مفصولة بفاصلة -- يسمح
+# بتدوير آمن بلا انقطاع خدمة (التوكن القديم والجديد صالحان معًا
+# مؤقتًا خلال فترة الانتقال، ثم يُحذَف القديم من القائمة لاحقًا).
+_ADMIN_TOKENS_ROTATION = [
+    t.strip() for t in os.environ.get("ADMIN_TOKENS_ROTATION", "").split(",") if t.strip()
+]
 BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "")
 OWNER_ID = os.environ.get("OWNER_TELEGRAM_ID", "")
 
@@ -94,6 +109,28 @@ CIPHERKEEP_MASTER_KEY = os.environ.get("CIPHERKEEP_MASTER_KEY", "")
 
 app = Flask(__name__)
 _lock = threading.Lock()
+
+
+@app.errorhandler(SupabaseRequestError)
+@app.errorhandler(requests.exceptions.RequestException)
+def _handle_supabase_unavailable(e):
+    """
+    إصلاح #19 -- معالج أخطاء موحَّد يغطي أي فشل اتصال/طلب فعلي بـ
+    Supabase (لا فشل تهيئة عند الإقلاع -- ذاك يُعالَج مسبقًا بـ
+    _init_supabase_core ويرجع server_misconfigured). هذا المعالج
+    يمسك أي استثناء من هذا النوع يرتفع من أي نقطة تستدعي DAL --
+    /verify, /admin/create, /admin/revoke, /admin/pause_all -- بلا
+    حاجة لتكرار try/except بكل نقطة على حدة، ويضمن عدم تسرّب أي
+    Stack Trace أو تفاصيل داخلية (رابط، مفتاح، رسالة خطأ خام) للعميل.
+
+    SupabaseRequestError: يُرفَع صراحة من DAL عند رد HTTP غير ناجح من
+    Supabase نفسها (مثلًا 404/500 من PostgREST).
+    requests.exceptions.RequestException: فشل شبكي أدنى مستوى (انقطاع
+    اتصال، DNS، timeout) قبل حتى وصول أي رد من Supabase.
+    """
+    _log("SUPABASE_UNAVAILABLE error=" + str(e))
+    return jsonify(ok=False, reason="backend_unavailable"), 500
+
 
 # ── تهيئة Core + DAL لـ /verify و /admin/create فقط ─────────────
 # باقي نقاط الإدارة (revoke/extend/pause_all/list) ما زالت تعتمد
@@ -120,7 +157,10 @@ def _init_supabase_core() -> None:
         device_repo = SupabaseDeviceRepository(
             base_url=SUPABASE_URL, service_key=SUPABASE_SERVICE_KEY
         )
-        _core = CipherKeepCore(code_repo, device_repo)
+        admin_codes_repo = SupabaseCodeQueryRepository(
+            base_url=SUPABASE_URL, service_key=SUPABASE_SERVICE_KEY
+        )
+        _core = CipherKeepCore(code_repo, device_repo, admin_codes=admin_codes_repo)
         _server_mode = ServerModeService(_core)
     except Exception as e:
         print("تحذير: فشل تهيئة الاتصال بـ Supabase: " + str(e))
@@ -157,8 +197,15 @@ def _notify(text: str) -> None:
             json={"chat_id": OWNER_ID, "text": text},
             timeout=5,
         )
-    except Exception:
-        pass  # التنبيه ثانوي، ما لازم يوقف السيرفر لو فشل
+    except Exception as e:
+        # إصلاح L1: التنبيه ثانوي فعلًا (ما لازم يوقف السيرفر لو فشل)،
+        # لكن الفشل الصامت الكامل يعني فقدان الرؤية تمامًا وقت حادثة
+        # فعلية (مثلًا استنزاف/هجوم بالتزامن مع تعطّل تيليجرام). يُسجَّل
+        # الفشل بـactivity.log على الأقل، بلا رفع استثناء يوقف الطلب.
+        try:
+            _log("NOTIFY_FAILED error=" + str(e))
+        except Exception:
+            pass  # حتى لو فشل التسجيل نفسه، _notify ما ترفع استثناء أبدًا
 
 
 # _notify مُعرَّفة الآن -- نستدعي التهيئة هنا عشان تنبيهات الفشل تشتغل صح
@@ -281,7 +328,10 @@ def _require_admin() -> bool:
     if not ADMIN_TOKEN:
         return False
     token = request.headers.get("X-Admin-Token", "")
-    return secrets.compare_digest(token, ADMIN_TOKEN)
+    # كل التوكنات الصالحة حاليًا: الأساسي + أي توكنات تدوير مفعَّلة
+    # صراحة (فارغة افتراضيًا -- لا تغيير بالسلوك ما لم تُفعَّل).
+    valid_tokens = [ADMIN_TOKEN] + _ADMIN_TOKENS_ROTATION
+    return any(secrets.compare_digest(token, valid) for valid in valid_tokens)
 
 
 # ── فك التشفير انتقل بالكامل لـ cipherkeep_core/crypto.py (الخطوة 4) ──
@@ -335,10 +385,22 @@ def admin_revoke():
         return jsonify(ok=False, reason="unauthorized"), 401
     code = str((request.get_json(force=True, silent=True) or {}).get("code", ""))
     data = _load()
-    if code not in data["codes"]:
+    found_locally = code in data["codes"]
+    if found_locally:
+        data["codes"][code]["revoked"] = True
+        _save(data)
+
+    # إصلاح C1 (Kill Switch): إلغاء على Supabase أيضًا، بالتوازي مع
+    # licenses.json المحلي — بلا فحص ملكية (مسار إداري منفصل تمامًا
+    # عن revoke_code العادية المخصَّصة للمشرفين الأفراد).
+    found_on_supabase = False
+    if _core is not None:
+        result = _core.admin_force_revoke(code)
+        found_on_supabase = result.ok
+
+    if not found_locally and not found_on_supabase:
         return jsonify(ok=False, reason="not_found"), 404
-    data["codes"][code]["revoked"] = True
-    _save(data)
+
     _log("REVOKE code=" + code)
     _notify("تم إلغاء الكود: " + code)
     return jsonify(ok=True)
@@ -369,9 +431,33 @@ def admin_pause_all():
     for entry in data["codes"].values():
         entry["revoked"] = True
     _save(data)
+    local_count = len(data["codes"])
+
+    # إصلاح C1 (Kill Switch): إيقاف جماعي على Supabase أيضًا.
+    supabase_count = 0
+    if _core is not None:
+        try:
+            supabase_count = _core.admin_pause_all()
+        except RepositoryNotConfigured:
+            # Core أُنشئ بلا CodeQueryRepository (نظريًا غير متوقَّع هنا
+            # لأن _init_supabase_core تمررها دائمًا لو Supabase مهيَّأ،
+            # لكن فشل واضح أفضل من كسر صامت لو حدث تغيير مستقبلي).
+            #
+            # ⚠️ إصلاح #19: كانت هذي الكتلة تلتقط "except RuntimeError"
+            # عامة سابقًا -- بما أن SupabaseRequestError نفسها وريثة
+            # RuntimeError، أي فشل اتصال حقيقي بـSupabase أثناء سرد
+            # الأكواد كان يُبتلَع صامتًا هنا، ويرجع النجاح الوهمي
+            # (ok:true, count:0) بدل رد فشل حقيقي -- أخطر تسرّب من كل
+            # ما اكتُشف بمراجعة #19 (كذب صامت بنجاح Kill Switch فشل
+            # فعليًا). RepositoryNotConfigured لا ترث RuntimeError
+            # عمدًا (راجع core.py)، فلا يوجد تصادم بعد الآن --
+            # SupabaseRequestError تفلت من هذي الكتلة وتصل لمعالج
+            # _handle_supabase_unavailable العام بدلًا من ذلك.
+            pass
+
     _log("PAUSE_ALL")
     _notify("تم إيقاف كل الأكواد دفعة وحدة (kill-switch)")
-    return jsonify(ok=True, count=len(data["codes"]))
+    return jsonify(ok=True, count=local_count, supabase_count=supabase_count)
 
 
 @app.route("/admin/list", methods=["GET"])
@@ -387,18 +473,97 @@ def admin_list():
 
 # ── نقطة التحقق (يستخدمها الملف المشفر تلقائياً) ────────────────
 
-_fail_tracker: dict = {}
+class FailureTrackerRepository(Protocol):
+    """
+    واجهة تتبع محاولات الفشل لأغراض Rate Limiting — مضافة كنقطة
+    تكامل لإصلاح H3 (العدّاد الحالي بالذاكرة يُصفَّر مع كل إعادة
+    نشر، مما يسمح لمهاجم يعرف/يسبّب توقيت إعادة النشر بتجاوز الحد).
+
+    هذي الواجهة فقط — لا تنفيذ Supabase حي بعد. نقل التنفيذ الفعلي
+    لقاعدة بيانات يحتاج تعديل مخطط (جدول/RPC جديدة)، خارج حدود هذا
+    الإصلاح (يحتاج فتح Phase 2 لقاعدة البيانات صراحة). راجع
+    SupabaseFailureTrackerRepository أدناه لتفاصيل المتطلبات الكاملة.
+    """
+
+    def record_failure(self, ip: str, now: datetime) -> None:
+        """يسجّل محاولة فاشلة لهذا الـIP بهذا التوقيت."""
+        ...
+
+    def count_recent_failures(self, ip: str, window_seconds: int, now: datetime) -> int:
+        """يرجع عدد المحاولات الفاشلة لهذا الـIP خلال آخر window_seconds ثانية."""
+        ...
+
+
+class InMemoryFailureTracker:
+    """
+    التنفيذ الافتراضي الحالي — بالذاكرة فقط، نفس سلوك المتغيّر
+    القديم _fail_tracker حرفيًا بلا أي تغيير سلوكي. يُصفَّر مع كل
+    إعادة نشر/إعادة تشغيل — هذا بالضبط القيد الموثَّق بـH3، غير
+    محلول هنا عمدًا (يحتاج Supabase، مؤجَّل لـPhase 2).
+    """
+
+    def __init__(self) -> None:
+        self._store: dict = {}
+
+    def record_failure(self, ip: str, now: datetime) -> None:
+        self._store.setdefault(ip, []).append(now.timestamp())
+
+    def count_recent_failures(self, ip: str, window_seconds: int, now: datetime) -> int:
+        window = self._store.setdefault(ip, [])
+        cutoff = now.timestamp() - window_seconds
+        window[:] = [t for t in window if t > cutoff]
+        return len(window)
+
+
+class SupabaseFailureTrackerRepository:
+    """
+    ⚠️ غير منفَّذة — نقطة تكامل موثَّقة فقط لإصلاح H3 الكامل مستقبلًا
+    (Phase 2، بعد فتحها صراحة). عند التنفيذ الفعلي، تحتاج:
+
+      1. جدول جديد بـSupabase، مثلًا:
+         verify_failures(ip text, occurred_at timestamptz)
+      2. دالتا RPC جديدتان:
+         ck_record_verify_failure(p_ip)
+         ck_count_recent_verify_failures(p_ip, p_window_seconds)
+      3. آلية تنظيف دورية للسجلات القديمة (TTL/مهمة مجدولة منفصلة)،
+         لمنع نمو الجدول بلا حدود.
+
+    ترفع NotImplementedError حاليًا — لا تُستخدَم افتراضيًا، ولا
+    يوجد أي كود يستدعيها بهذي المرحلة.
+    """
+
+    def record_failure(self, ip: str, now: datetime) -> None:
+        raise NotImplementedError(
+            "SupabaseFailureTrackerRepository تحتاج تنفيذ Phase 2 "
+            "لقاعدة البيانات (جدول + RPC جديدة) — غير منفَّذة بعد."
+        )
+
+    def count_recent_failures(self, ip: str, window_seconds: int, now: datetime) -> int:
+        raise NotImplementedError(
+            "SupabaseFailureTrackerRepository تحتاج تنفيذ Phase 2 "
+            "لقاعدة البيانات (جدول + RPC جديدة) — غير منفَّذة بعد."
+        )
+
+
+# نقطة التبديل المستقبلية لإصلاح H3 الكامل: استبدل هذا السطر بتنفيذ
+# SupabaseFailureTrackerRepository حين تُفتَح Phase 2 لقاعدة البيانات.
+_failure_tracker: FailureTrackerRepository = InMemoryFailureTracker()
+
+# توافق خلفي: test_license_server_migration.py يستدعي
+# license_server._fail_tracker.clear() مباشرة بين كل اختبار — هذا
+# الاسم يبقى متاحًا بنفس الصيغة (dict حقيقي، لا نسخة) بلا أي تعديل
+# على ملف الاختبار.
+_fail_tracker = _failure_tracker._store
 
 
 def _rate_limited(ip: str) -> bool:
-    now = time.time()
-    window = _fail_tracker.setdefault(ip, [])
-    window[:] = [t for t in window if now - t < 3600]
-    return len(window) >= 5
+    return _failure_tracker.count_recent_failures(
+        ip, window_seconds=3600, now=datetime.now(timezone.utc)
+    ) >= 5
 
 
 def _mark_fail(ip: str) -> None:
-    _fail_tracker.setdefault(ip, []).append(time.time())
+    _failure_tracker.record_failure(ip, datetime.now(timezone.utc))
 
 
 @app.route("/verify", methods=["POST"])
@@ -424,22 +589,32 @@ def verify():
     result = _server_mode.verify_and_decrypt(code, device_id, ciphertext)
 
     if not result.ok:
-        # ترجمة أسباب Core الداخلية لنفس نصوص الواجهة الأصلية حرفيًا
+        # إصلاح H1 (Oracle Leak): not_found/revoked/expired تُعطى نفس
+        # الرد تمامًا (نفس status، نفس body، نفس الرسالة) — لا يجوز
+        # لأي طرف خارجي استنتاج أيًا من الحالات الثلاث فرق بينها عبر
+        # /verify. لو احتاج العميل الشرعي معرفة السبب الحقيقي، فذلك
+        # عبر قناة إدارية (لوحة الإدارة/بوت الإدارة) لا هذي النقطة.
         reason_map = {
             "not_found": "invalid_or_revoked",
             "revoked": "invalid_or_revoked",
-            "expired": "expired",
+            "expired": "invalid_or_revoked",
             "device_limit_reached": "device_limit",
             "decrypt_error": "decrypt_error",
         }
         wire_reason = reason_map.get(result.reason, result.reason)
         status_code = 400 if wire_reason == "decrypt_error" else 403
 
-        # نفس منطق الأصل بالحرف: mark_fail لكل الأسباب عدا "expired"
-        if wire_reason != "expired":
-            _mark_fail(ip)
+        # Fail Closed: معاملة موحَّدة تمامًا لكل حالات صلاحية الكود
+        # (invalid_or_revoked) — بلا أي استثناء لأي سبب داخلي حقيقي،
+        # وإلا يتسرّب فرق سلوكي عبر الزمن (Rate Limit) حتى لو تطابق
+        # نص الرد ظاهريًا. هذا يستبدل الاستثناء القديم الذي كان يعفي
+        # "expired" من العدّاد — ذاك الاستثناء بحد ذاته كان قناة
+        # استطلاع خفية (Oracle عبر توقيت الحظر، لا نص الرد).
+        _mark_fail(ip)
 
-        _log("VERIFY_FAIL code=" + code + " device=" + device_id + " reason=" + wire_reason)
+        # السبب الحقيقي (result.reason) يُسجَّل بالسجل الداخلي فقط
+        # للتشخيص الإداري — لا يظهر إطلاقًا بالرد الشبكي (wire_reason).
+        _log("VERIFY_FAIL code=" + code + " device=" + device_id + " reason=" + result.reason)
         return jsonify(ok=False, reason=wire_reason), status_code
 
     if result.is_new_device:

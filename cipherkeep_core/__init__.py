@@ -1,4 +1,4 @@
-from .core import CipherKeepCore
+from .core import CipherKeepCore, RepositoryNotConfigured
 from .models import (
     LicenseCode,
     DeviceRecord,
@@ -8,11 +8,12 @@ from .models import (
     ExtendResult,
     Moderator,
 )
-from .interfaces import CodeRepository, DeviceRepository, ModeratorRepository
+from .interfaces import CodeRepository, DeviceRepository, ModeratorRepository, CodeQueryRepository
 from .service_server_mode import ServerModeService, DecryptedVerifyResult
 
 __all__ = [
     "CipherKeepCore",
+    "RepositoryNotConfigured",
     "LicenseCode",
     "DeviceRecord",
     "VerifyResult",
@@ -23,6 +24,7 @@ __all__ = [
     "CodeRepository",
     "DeviceRepository",
     "ModeratorRepository",
+    "CodeQueryRepository",
     "ServerModeService",
     "DecryptedVerifyResult",
 ]

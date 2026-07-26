@@ -19,6 +19,7 @@ from typing import Optional
 
 from .core import CipherKeepCore
 from .crypto import decrypt_blob, DecryptError
+from .models import DeviceClaimStatus
 
 
 @dataclass(frozen=True)
@@ -46,35 +47,38 @@ class ServerModeService:
         ciphertext: bytes,
         now: Optional[datetime] = None,
     ) -> DecryptedVerifyResult:
-        # القرار كامل (وجود، إلغاء، انتهاء، حد أجهزة) يبقى بالكامل
-        # مسؤولية Core — هذا استدعاء، لا إعادة تنفيذ.
-        result = self._core.verify_code(code, device_fingerprint, now=now)
+        result = self._core.check_code_validity(code, now=now)
 
         if not result.ok:
             return DecryptedVerifyResult(
-                ok=False,
-                reason=result.reason,
-                filename=None,
-                source_bytes=None,
-                is_new_device=False,
+                ok=False, reason=result.reason, filename=None,
+                source_bytes=None, is_new_device=False,
             )
 
         try:
             filename, source_bytes = decrypt_blob(ciphertext, result.key_material)
         except DecryptError:
             return DecryptedVerifyResult(
-                ok=False,
-                reason="decrypt_error",
-                filename=None,
-                source_bytes=None,
-                is_new_device=result.is_new_device,
+                ok=False, reason="decrypt_error", filename=None,
+                source_bytes=None, is_new_device=False,
+            )
+
+        reg = self._core.register_device(code, device_fingerprint, now=now)
+
+        if not reg.ok:
+            return DecryptedVerifyResult(
+                ok=False, reason=reg.reason, filename=None,
+                source_bytes=None, is_new_device=False,
+            )
+
+        if reg.claim_status == DeviceClaimStatus.LIMIT_REACHED:
+            return DecryptedVerifyResult(
+                ok=False, reason="device_limit_reached", filename=None,
+                source_bytes=None, is_new_device=False,
             )
 
         return DecryptedVerifyResult(
-            ok=True,
-            reason=None,
-            filename=filename,
-            source_bytes=source_bytes,
-            is_new_device=result.is_new_device,
+            ok=True, reason=None, filename=filename, source_bytes=source_bytes,
+            is_new_device=(reg.claim_status == DeviceClaimStatus.REGISTERED),
             label=result.label,
         )

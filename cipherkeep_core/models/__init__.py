@@ -9,8 +9,8 @@
 """
 
 from .codes import LicenseCode
-from .devices import DeviceRecord, DeviceClaimStatus
-from .verification import VerifyResult
+from .devices import DeviceRecord, DeviceClaimStatus, DeviceRegistrationResult
+from .verification import VerifyResult, CodeValidityResult
 from .mutations import RevokeResult, ExtendResult
 from .moderators import Moderator
 
@@ -18,7 +18,9 @@ __all__ = [
     "LicenseCode",
     "DeviceRecord",
     "DeviceClaimStatus",
+    "DeviceRegistrationResult",
     "VerifyResult",
+    "CodeValidityResult",
     "RevokeResult",
     "ExtendResult",
     "Moderator",

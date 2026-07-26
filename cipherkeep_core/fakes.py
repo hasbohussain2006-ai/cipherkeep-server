@@ -130,3 +130,18 @@ class FakeModeratorRepository:
 
     def get_by_external_id(self, external_id: str) -> Optional[Moderator]:
         return self._store.get(external_id)
+
+
+class FakeCodeQueryRepository:
+    """
+    تنفيذ وهمي بالذاكرة لـCodeQueryRepository — مضافة لإصلاح C1.
+    يحتاج مرجعًا لـFakeCodeRepository عشان يقرأ كل الأكواد المخزَّنة،
+    بنفس نمط FakeDeviceRepository اللي يحتاج مرجعًا لـFakeCodeRepository
+    أصلًا لقراءة max_devices.
+    """
+
+    def __init__(self, codes: "FakeCodeRepository") -> None:
+        self._codes_repo = codes
+
+    def list_all_codes(self):
+        return list(self._codes_repo._store.keys())

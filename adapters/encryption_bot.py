@@ -156,6 +156,7 @@ def encrypt_password_mode(chat_id, src_path: Path, password: str):
         src_path, key, encryptor.MODE_PASSWORD, salt, n_log2
     )
     send_document(chat_id, out_path, caption="تم التشفير بباسورد. لا تنسى الباسورد -- ما فيه استرجاع بدونه.")
+    src_path.unlink(missing_ok=True)  # حذف المصدر الأصلي بعد نجاح التشفير فقط
     return True
 
 
@@ -174,6 +175,7 @@ def encrypt_keyfile_mode(chat_id, src_path: Path):
         caption="ملف المفتاح secret.key -- لازم يكون بنفس مجلد الملف المشفر وقت التشغيل. "
                 "احتفظ بنسخة احتياطية بمكان ثاني، لو ضاع ما فيه استرجاع.",
     )
+    src_path.unlink(missing_ok=True)  # حذف المصدر الأصلي بعد نجاح التشفير فقط
     return True
 
 
@@ -194,7 +196,7 @@ def encrypt_server_mode(chat_id, src_path: Path, label: str, max_devices: int, t
     salt = b"\x00" * encryptor.SALT_LEN
     n_log2 = 0
     out_path = encryptor.build_and_verify_launcher(
-        src_path, key, encryptor.MODE_SERVER, salt, n_log2, code=code, server_url=LICENSE_SERVER_URL
+        src_path, key, encryptor.MODE_SERVER, salt, n_log2, code="", server_url=LICENSE_SERVER_URL
     )
     days_txt = (str(expire_days) + " يوم") if expire_days else "بلا حد"
     send_document(chat_id, out_path, caption="الملف المشفر (وضع السيرفر).")
@@ -206,6 +208,7 @@ def encrypt_server_mode(chat_id, src_path: Path, label: str, max_devices: int, t
         ("\n(تجربة)" if trial else "") +
         "\nابعثه لصاحب الملف. تقدر تلغيه بأي وقت من بوت الإدارة.",
     )
+    src_path.unlink(missing_ok=True)  # حذف المصدر الأصلي بعد نجاح التشفير فقط
     return True
 
 
@@ -349,6 +352,10 @@ def poll_loop():
 def main():
     if BOT_TOKEN.startswith("ضع_") or not ALLOWED_USER_IDS or "ضع_" in list(ALLOWED_USER_IDS)[0]:
         print("خطأ: عبّي ENCRYPT_BOT_TOKEN و ALLOWED_USER_IDS قبل التشغيل.")
+        sys.exit(1)
+    if not LICENSE_SERVER_URL.startswith("https://"):
+        print("خطأ: LICENSE_SERVER_URL يجب أن يبدأ بـ https:// -- رفض التشغيل "
+              "لحماية LICENSE_ADMIN_TOKEN من الانكشاف عبر قناة غير مشفَّرة.")
         sys.exit(1)
     poll_loop()
 

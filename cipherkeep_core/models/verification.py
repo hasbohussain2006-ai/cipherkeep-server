@@ -31,3 +31,12 @@ class VerifyResult:
     key_material: Optional[bytes]
     is_new_device: bool = False
     label: Optional[str] = None
+
+
+@dataclass(frozen=True)
+class CodeValidityResult:
+    """نتيجة CipherKeepCore.check_code_validity — مضافة لإصلاح R1."""
+    ok: bool
+    reason: Optional[str]
+    key_material: Optional[bytes]
+    label: Optional[str] = None

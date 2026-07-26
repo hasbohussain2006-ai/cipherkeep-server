@@ -1,6 +1,7 @@
 from .supabase_repositories import (
     SupabaseCodeRepository,
     SupabaseDeviceRepository,
+    SupabaseCodeQueryRepository,
     SupabaseConfigError,
     SupabaseRequestError,
 )
@@ -8,6 +9,7 @@ from .supabase_repositories import (
 __all__ = [
     "SupabaseCodeRepository",
     "SupabaseDeviceRepository",
+    "SupabaseCodeQueryRepository",
     "SupabaseConfigError",
     "SupabaseRequestError",
 ]

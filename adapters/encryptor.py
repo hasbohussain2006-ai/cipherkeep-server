@@ -264,12 +264,47 @@ def load_or_create_keyfile(key_path: Path) -> bytes:
     return key
 
 
+_PASSWORD_MIN_LEN = 12
+
+
+def _password_policy_violations(pw: str) -> list:
+    """
+    يرجّع قائمة بالشروط الناقصة فقط (فارغة = الباسورد مطابق للسياسة).
+    مستخرجة كدالة مستقلة عشان تُطبَّق فقط وقت إنشاء باسورد جديد --
+    لا وقت إدخاله لفك تشفير ملف قديم (راجع استخدام confirm أدناه).
+    """
+    issues = []
+    if len(pw) < _PASSWORD_MIN_LEN:
+        issues.append(f"{_PASSWORD_MIN_LEN} حرف على الأقل")
+    if not any(c.isupper() for c in pw):
+        issues.append("حرف كبير واحد على الأقل (A-Z)")
+    if not any(c.islower() for c in pw):
+        issues.append("حرف صغير واحد على الأقل (a-z)")
+    if not any(c.isdigit() for c in pw):
+        issues.append("رقم واحد على الأقل (0-9)")
+    if not any(not c.isalnum() for c in pw):
+        issues.append("رمز خاص واحد على الأقل (!@#$...)")
+    return issues
+
+
 def prompt_password(confirm: bool) -> bytes:
     while True:
         pw1 = input("اكتب الباسورد: ")
-        if len(pw1) < 4:
-            fail("قصير كثير، اختر باسورد أطول")
+
+        if confirm:
+            # سياسة قوة أدنى -- تُفرَض فقط عند إنشاء باسورد جديد
+            # (وضع التشفير). لا تُفرَض عند إدخال باسورد لفك تشفير ملف
+            # موجود مسبقًا (confirm=False بـrun_decrypt) -- ملفات
+            # قديمة مشفَّرة بباسوردات أقصر يجب أن تبقى قابلة لفك
+            # التشفير بلا كسر توافق.
+            issues = _password_policy_violations(pw1)
+            if issues:
+                fail("الباسورد لازم يحتوي: " + "، ".join(issues))
+                continue
+        elif len(pw1) < 1:
+            fail("ما كتبت شي، جرب ثانية")
             continue
+
         if confirm:
             pw2 = input("أكد الباسورد: ")
             if pw1 != pw2:
@@ -661,7 +696,7 @@ def run_encrypt() -> None:
     done = 0
     for i, f in enumerate(files, 1):
         try:
-            out_path = build_and_verify_launcher(f, key, mode, salt, n_log2, code, server_url)
+            out_path = build_and_verify_launcher(f, key, mode, salt, n_log2, code="", server_url=server_url)
             ok(f"{f.name}  ->  {out_path.name}")
             done += 1
         except Exception as e:
@@ -697,6 +732,11 @@ def run_decrypt() -> None:
     def resolve_key(mode: int, salt: bytes, n_log2: int, f: Path) -> Optional[bytes]:
         if mode == MODE_SERVER:
             code = extract_code_from_launcher(f)
+            if not code:
+                # الملفات المُنشأة بعد إزالة تضمين الكود (Compatibility
+                # Fix أمني) لا تحمل الكود بنص واضح داخلها -- نطلبه يدويًا
+                # بدل فشل صامت.
+                code = input(f"{f.name}: اكتب كود التفعيل المرتبط بهذا الملف: ").strip()
             entry = server_keys.get(code) if code else None
             if entry is None:
                 fail(f"{f.name}: ما لقيت مفتاح هذا الكود محلياً ({code})")
@@ -786,7 +826,7 @@ def run_inspect() -> None:
         print(f"      يحتاج: {mode_txt}")
         if header["mode"] == MODE_SERVER:
             code = extract_code_from_launcher(f)
-            print(f"      كود التفعيل: {code}")
+            print(f"      كود التفعيل: {code if code else '(غير مضمَّن بالملف -- أدخله يدويًا وقت فك التشفير)'}")
         print(f"      الحجم: {size_kb:.1f} KB   |   آخر تعديل: {mtime}")
         print(c("      (الاسم الأصلي مخفي لحد ما تفك التشفير)", Colors.DIM))
         print()

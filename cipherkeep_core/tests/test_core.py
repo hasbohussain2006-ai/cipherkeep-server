@@ -10,7 +10,7 @@ from datetime import datetime, timedelta, timezone
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..")))
 
-from cipherkeep_core import CipherKeepCore
+from cipherkeep_core import CipherKeepCore, RepositoryNotConfigured
 from cipherkeep_core.fakes import (
     FakeCodeRepository,
     FakeDeviceRepository,
@@ -215,7 +215,11 @@ class TestCipherKeepCore(unittest.TestCase):
         codes = FakeCodeRepository()
         devices = FakeDeviceRepository(codes)
         core_no_moderators = CipherKeepCore(codes, devices)
-        with self.assertRaises(RuntimeError):
+        # RepositoryNotConfigured (لا RuntimeError عامة) -- إصلاح #19:
+        # فصل شجرة الوراثة عمدًا يمنع تصادمًا مستقبليًا مع
+        # SupabaseRequestError (وريثة RuntimeError) لو استُدعيت هذي
+        # الدالة يومًا من Adapter يستخدم "except RuntimeError" عامة.
+        with self.assertRaises(RepositoryNotConfigured):
             core_no_moderators.register_moderator("mod-1", "telegram-123")
 
     def test_register_then_resolve_moderator_by_external_id(self):
