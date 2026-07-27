@@ -365,13 +365,13 @@ def admin_create():
         expires_at = datetime.now(timezone.utc) + timedelta(days=int(expire_days))
 
     _core.create_code(
-        code=code,
-        key_material=key,
-        label=label,
-        max_devices=max_devices,
-        trial=trial,
-        expires_at=expires_at,
-    )
+    code=code,
+    key_material=key,
+    label=label,
+    max_devices=max_devices,
+    trial=trial,
+    expires_at=expires_at,
+)
 
     key_b64 = base64.b64encode(key).decode("ascii")
     _log("CREATE code=" + code + " label=" + label + " trial=" + str(trial))
