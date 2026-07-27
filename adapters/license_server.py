@@ -362,25 +362,25 @@ def admin_create():
     if expire_days:
         # timezone-aware إلزاميًا -- Core.verify_code يقارنها بـ
         # datetime.now(timezone.utc)، ومقارنة naive/aware تطيح بخطأ.
-        expires_at = datetime.now(timezone.u) + timedelta(days=int(expire_days))
+        expires_at = datetime.now(timezone.utc) + timedelta(days=int(expire_days))
 
-try:
-    _core.create_code(
-        code=code,
-        key_material=key,
-        label=label,
-        max_devices=max_devices,
-        trial=trial,
-        expires_at=expires_at,
-    )
-except Exception as e:
-    import traceback
-    traceback.print_exc()
-    return jsonify(ok=False, error=str(e)), 500
+    try:
+        _core.create_code(
+            code=code,
+            key_material=key,
+            label=label,
+            max_devices=max_devices,
+            trial=trial,
+            expires_at=expires_at,
+        )
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify(ok=False, error=str(e)), 500
 
     key_b64 = base64.b64encode(key).decode("ascii")
     _log("CREATE code=" + code + " label=" + label + " trial=" + str(trial))
-    _notify("كود جديد: " + code + ("  (" + label + ")" if label else ""))
+    _notify("كود جديد: " + code + (" (" + label + ")" if label else ""))
     return jsonify(ok=True, code=code, key_b64=key_b64)
 
 
