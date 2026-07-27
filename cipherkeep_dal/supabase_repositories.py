@@ -109,8 +109,10 @@ class SupabaseCodeRepository:
         # المُرسَلة، لا بالقيمة. راجع 05_DECISIONS.md.
         if moderator_id is not None:
             payload["p_moderator_id"] = moderator_id
-        # ⚠️ طباعة مؤقتة للتشخيص فقط -- احذف هذا السطر بعد التأكد
-        print("PAYLOAD:", payload, flush=True)
+
+        # DEBUG مؤقت - احذفه بعد انتهاء التشخيص
+        raise RuntimeError(f"PAYLOAD={payload}")
+
         resp = self._session.post(
             f"{self._base_url}/rest/v1/rpc/ck_create_code",
             json=payload,
