@@ -364,14 +364,19 @@ def admin_create():
         # datetime.now(timezone.utc)، ومقارنة naive/aware تطيح بخطأ.
         expires_at = datetime.now(timezone.utc) + timedelta(days=int(expire_days))
 
+    try:
     _core.create_code(
-    code=code,
-    key_material=key,
-    label=label,
-    max_devices=max_devices,
-    trial=trial,
-    expires_at=expires_at,
-)
+        code=code,
+        key_material=key,
+        label=label,
+        max_devices=max_devices,
+        trial=trial,
+        expires_at=expires_at,
+    )
+except Exception as e:
+    import traceback
+    traceback.print_exc()
+    return jsonify(ok=False, error=str(e)), 500
 
     key_b64 = base64.b64encode(key).decode("ascii")
     _log("CREATE code=" + code + " label=" + label + " trial=" + str(trial))
