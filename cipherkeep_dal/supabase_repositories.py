@@ -100,8 +100,17 @@ class SupabaseCodeRepository:
             "p_trial": trial,
             "p_expires_at": expires_at.isoformat() if expires_at else None,
             "p_passphrase": self._passphrase,
-            "p_moderator_id": moderator_id,
         }
+        # Compatibility Fix: لا يُرسَل p_moderator_id إطلاقًا لو None —
+        # النسخة الحالية المنشورة حيًا من ck_create_code على Supabase
+        # لا تعرف هذا المعامل بعد (توقيعها القديم بلا p_moderator_id).
+        # إرساله دائمًا حتى بقيمة None يُسقط مطابقة PostgREST للدالة
+        # بالكامل (PGRST202) لأنها تطابق بالاسم الكامل للمعاملات
+        # المُرسَلة، لا بالقيمة. راجع 05_DECISIONS.md.
+        if moderator_id is not None:
+            payload["p_moderator_id"] = moderator_id
+        # ⚠️ طباعة مؤقتة للتشخيص فقط -- احذف هذا السطر بعد التأكد
+        print("PAYLOAD:", payload, flush=True)
         resp = self._session.post(
             f"{self._base_url}/rest/v1/rpc/ck_create_code",
             json=payload,
