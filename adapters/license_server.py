@@ -362,9 +362,9 @@ def admin_create():
     if expire_days:
         # timezone-aware إلزاميًا -- Core.verify_code يقارنها بـ
         # datetime.now(timezone.utc)، ومقارنة naive/aware تطيح بخطأ.
-        expires_at = datetime.now(timezone.utc) + timedelta(days=int(expire_days))
+        expires_at = datetime.now(timezone.u) + timedelta(days=int(expire_days))
 
-    try:
+try:
     _core.create_code(
         code=code,
         key_material=key,
