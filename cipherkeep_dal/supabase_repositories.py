@@ -111,7 +111,6 @@ class SupabaseCodeRepository:
             payload["p_moderator_id"] = moderator_id
 
         # DEBUG مؤقت - احذفه بعد انتهاء التشخيص
-        raise RuntimeError(f"PAYLOAD={payload}")
 
         resp = self._session.post(
             f"{self._base_url}/rest/v1/rpc/ck_create_code",
