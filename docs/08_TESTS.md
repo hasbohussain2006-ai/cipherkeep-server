@@ -1,43 +1,48 @@
 # 08 — الاختبارات (Tests)
 
-## الفلسفة
+## الفلسفة (بلا تغيير)
 
-- اختبار فعلي حقيقي إلزامي قبل أي تسليم (`03_RULES.md` #5) — لا افتراض.
-- `unittest` القياسي (بلا `pytest`) — بيئات التنفيذ غالبًا بلا اتصال شبكي لتثبيت حزم إضافية؛ `unittest` مضمَّن بلغة بايثون نفسها.
-- تمييز صريح دائمًا بين: **مختبَر محليًا** (Fakes/محاكاة HTTP) و**مثبَت حيًا** (اتصال حقيقي). التفاصيل الحية بـ`04_PROGRESS.md`.
+اختبار فعلي حقيقي إلزامي قبل أي تسليم. `unittest` القياسي (متوافق أيضًا مع `pytest`، مؤكَّد فعليًا على Termux). تمييز صريح دائمًا بين **مختبَر محليًا** و**مثبَت حيًا**.
 
-## مبدأ DIP وأثره على الاختبار
-
-الواجهات المجرَّدة (`CodeRepository`, `DeviceRepository`) تمكّن اختبار `CipherKeepCore` بمستودعات وهمية بالذاكرة (`fakes.py`)، بمعزل تام عن Supabase — هذا هو المبرر الهندسي الأساسي لـDIP بالمشروع (`05_DECISIONS.md`).
-
-## جرد الاختبارات الحالي
-
-**تحديث بعد Baseline Consolidation:** المسارات أدناه تعكس الهيكل بعد إعادة التنظيم الاحترافية (`adapters/`, `tools/`, `docs/`) — راجع `PROJECT_STRUCTURE.md` لتفاصيل الهيكل الكامل.
+## جرد الاختبارات الحالي — 71 اختبارًا (بعد المراجعة الأمنية الشاملة)
 
 | ملف الاختبار | العدد | يغطي |
 |---|---|---|
-| `cipherkeep_core/tests/test_core.py` | 26 | `CipherKeepCore` كاملًا: إنشاء/تحقق/حد أجهزة/إلغاء/انتهاء/`is_new_device` (11 أصلية) + `revoke_code`/`extend_code`/عزل الملكية (8) + `register_moderator`/`resolve_moderator` (7) — بمستودعات وهمية |
-| `cipherkeep_core/tests/test_service_server_mode.py` | 11 | `ServerModeService` + `crypto.py`، منها Roundtrip تشفير حقيقي |
-| `cipherkeep_dal/tests/test_supabase_repositories.py` | 15 | منطق طلبات/ردود HTTP لـ`SupabaseCodeRepository`/`SupabaseDeviceRepository` (9 أصلية + 2 موسَّعة لـmoderator_id) + `SupabaseModeratorRepository` (5 جديدة) — محاكاة عبر `unittest.mock` |
-| `adapters/tests/test_license_server_migration.py` | 9 | `license_server.py` كاملًا عبر Flask test client، بمستودعات وهمية محقونة |
-| **المجموع الآلي المحلي** | **66** | — |
+| `cipherkeep_core/tests/test_core.py` | 26 | `CipherKeepCore` كاملًا، شامل `RepositoryNotConfigured` (إصلاح #19) |
+| `cipherkeep_core/tests/test_service_server_mode.py` | 11 | `ServerModeService` + `crypto.py` — اختباران مُحدَّثان لإصلاح R1 (`test_invalid_ciphertext_fails_before_device_limit_check`, `is_new_device=False` عند فشل فك تشفير) |
+| `cipherkeep_dal/tests/test_supabase_repositories.py` | 20 | منطق طلبات/ردود HTTP، شامل تحديث اختبار Compatibility Fix (`assertNotIn("p_moderator_id", ...)` بدل `assertIsNone`) |
+| `adapters/tests/test_license_server_migration.py` | 14 | `license_server.py` كاملًا، + 5 اختبارات جديدة لإصلاح #19 (`TestBackendUnavailableHandling`) |
+| **المجموع الآلي المحلي** | **71** | — |
 
-## أدوات إثبات حي (خارج عدّ الاختبارات الآلية أعلاه — تشغيل يدوي فقط)
+**تشغيل المجموعة الرئيسية (57 اختبارًا: Core+DAL) من جذر المشروع:**
+```bash
+python3 -m unittest discover -s . -p "test_*.py"
+```
+**تشغيل `adapters` بمعزل (14 اختبارًا، بسبب طبيعة اكتشاف الحزم):**
+```bash
+python3 -m unittest adapters.tests.test_license_server_migration
+```
+**أو، عبر `pytest` (يكتشف كليهما بنداء واحد، مؤكَّد فعليًا حيًا):**
+```bash
+pytest -v
+```
 
-توجد الآن بمجلد `tools/` منفصلة عن اختبارات الوحدة (فرق مفهومي: هذي أدوات تشغيل يدوي تحتاج اتصال Supabase حقيقي، لا اختبارات آلية تُدرَج بعدّاد CI):
-- `tools/live_proof_supabase.py`
-- `tools/full_lifecycle_proof.py`
-- `tools/concurrency_test_supabase.py`
+## الإثبات الحي — مكتمل بالكامل (Phase 1 مغلَقة)
 
-## الإثبات الحي (خارج الاختبارات الآلية، تشغيل فعلي بمعرفة المستخدم)
+| العنصر | الحالة |
+|---|---|
+| مخطط Supabase | 🟢 مثبَت حيًا |
+| Data Access Layer | 🟢 مثبَت حيًا (إنشاء/تحقق/فك تشفير/حد أجهزة/تزامن حقيقي) |
+| ترحيل `license_server.py` (`/verify`+`/admin/create`) | 🟢 مثبَت حيًا (`live_proof_supabase.py`) |
+| إثبات الدورة الكاملة (إعادة نشر محاكاة) | 🟢 مثبَت حيًا (`full_lifecycle_proof.py`) |
+| `encryption_bot.py` (دورة كاملة عبر تيليجرام حقيقي) | 🟢 مثبَت حيًا — كود `EFU-YNRV`، سجلات إشعار مطابقة حرفيًا |
+| سيناريو فشل الاتصال بـSupabase | 🟢 مثبَت حيًا — اكتُشف وأُصلح اكتشافان فعليان أثناء الاختبار (تسرّب استثناء خام، ابتلاع صامت بـ`admin_pause_all`) |
+| المجموعة الآلية الكاملة (71) | 🟢 مثبَتة حيًا عبر `pytest` على بيئة Termux Android حقيقية (Python 3.14.6)، لا محليًا بمعزل فقط |
 
-- مخطط Supabase: مؤكَّد حيًا (تنفيذ SQL ناجح فعليًا)
-- Data Access Layer: مؤكَّد حيًا (إنشاء، تحقق، فك تشفير، حد أجهزة، وتزامن حقيقي عبر Threading — نجاح جهاز واحد فقط من محاولتين متزامنتين، بما يثبت `ck_claim_device_slot` فعليًا)
-- ترحيل `license_server.py`: أداة إثبات حي جاهزة (`live_proof_supabase.py`)، **النتيجة الفعلية لم تصل بعد** — الحالة `04_PROGRESS.md`
+**Phase 1 لا تحتاج أي إثبات حي إضافي — مغلَقة بالكامل.**
 
-## قاعدة الاختبار الحي عند غياب الشبكة ببيئة التنفيذ
+## قاعدة الاختبار الحي (بلا تغيير)
 
-عند تعذّر اتصال شبكي مباشر أثناء التطوير:
-1. يُبنى أقصى اختبار آلي ممكن محليًا (Fakes/محاكاة HTTP).
-2. تُبنى أداة إثبات حي مستقلة، بسجل مخرجات واضح، يشغّلها المستخدم بنفسه.
-3. لا تُعتبَر أي خطوة "مثبَتة حيًا" إلا بنتيجة فعلية من المستخدم.
+1. أقصى اختبار آلي ممكن محليًا (Fakes/محاكاة HTTP)
+2. أداة إثبات حي مستقلة يشغّلها المستخدم بنفسه
+3. لا تُعتبَر أي خطوة "مثبَتة حيًا" إلا بنتيجة فعلية من المستخدم — **مبدأ طُبِّق بصرامة طوال دورة الإغلاق**، بما فيها رفض قبول ادعاءات وصفية بلا دليل حرفي (سطر Log، رد API فعلي) أكثر من مرة أثناء تصحيح Compatibility Fix.

@@ -1,40 +1,56 @@
 # 07 — العقود (API / Contracts)
 
-## ما يُعتبَر "تعديل عقد" (Contract Change)
+## ما يُعتبَر "تعديل عقد"
 
-أي إضافة/حذف/تغيير نوع حقل بأي بنية بيانات هنا، أو تغيير شكل مدخل/مخرج أي نقطة HTTP. يحتاج موافقة مسبقة دائمًا (`03_RULES.md` #3) — الاستثناء الضيق (كشف معلومة محسوبة أصلًا) **أُغلق نهائيًا** بعد `VerifyResult`.
+أي إضافة/حذف/تغيير نوع حقل، أو تغيير شكل مدخل/مخرج أي نقطة HTTP. يحتاج موافقة مسبقة دائمًا.
 
 ---
 
 ## عقود Core (بايثون)
 
-### `VerifyResult` — **مُغلَق، لا إضافات جديدة**
+### `VerifyResult` — **مُغلَق نهائيًا، صفر إضافة حتى بعد Phase 2**
 ```python
 ok: bool
 reason: Optional[str]        # not_found | revoked | expired | device_limit_reached
 key_material: Optional[bytes]
-is_new_device: bool = False  # معلومة محسوبة أصلًا، للقراءة فقط
-label: Optional[str] = None  # معلومة محسوبة أصلًا، للقراءة فقط — آخر إضافة مسموحة
+is_new_device: bool = False
+label: Optional[str] = None
 ```
+**ملاحظة معتمَدة:** بدل توسيع هذا العقد لسياقات جديدة (كالحاجة لتحقق بلا حجز)، أُنشئت أنواع جديدة مستقلة (`CodeValidityResult` أدناه) — هذا هو النمط المعتمَد الآن لأي حاجة مشابهة مستقبلية.
 
-### `DecryptedVerifyResult` (داخل `ServerModeService`)
-نوع منفصل تمامًا عن `VerifyResult` — لا يشترك معه ببنية الملف، فقط بالمصدر المنطقي.
+### `CodeValidityResult` — جديد (إصلاح R1)
 ```python
 ok: bool
-reason: Optional[str]           # نفس قيم VerifyResult + decrypt_error
+reason: Optional[str]
+key_material: Optional[bytes]
+label: Optional[str] = None
+```
+نتيجة `CipherKeepCore.check_code_validity()`. نوع منفصل تمامًا عن `VerifyResult` (لا حقل `is_new_device` — لا معنى له، لا حجز حدث بعد).
+
+### `DeviceRegistrationResult` — جديد (إصلاح R1)
+```python
+ok: bool
+reason: Optional[str] = None      # 'not_found' | 'revoked' | 'expired' لو ok=False
+claim_status: Optional[DeviceClaimStatus] = None   # لو ok=True
+```
+نتيجة `CipherKeepCore.register_device()`.
+
+### `DecryptedVerifyResult` (داخل `ServerModeService`) — بلا تغيير
+```python
+ok: bool
+reason: Optional[str]
 filename: Optional[str]
 source_bytes: Optional[bytes]
 is_new_device: bool
 label: Optional[str] = None
 ```
 
-### `DeviceClaimStatus` (Enum)
+### `DeviceClaimStatus` (Enum) — بلا تغيير
 ```python
 REGISTERED | ALREADY_REGISTERED | LIMIT_REACHED
 ```
 
-### `RevokeResult` / `ExtendResult` (Phase 2 — منفَّذان كودًا، بانتظار إثبات حي)
-عقدان مستقلان تمامًا عن `VerifyResult` (قرار جلسة تصميم Phase 2، `05_DECISIONS.md`) — لا يُوسَّعان مستقبلًا لخدمة عمليات إدارية أخرى، كل عملية جديدة تحصل على عقدها الخاص وقت بنائها.
+### `RevokeResult` / `ExtendResult` — بلا تغيير
 ```python
 # RevokeResult
 ok: bool
@@ -42,118 +58,106 @@ reason: Optional[str] = None   # 'not_found' | 'not_owner'
 
 # ExtendResult
 ok: bool
-reason: Optional[str] = None          # 'not_found' | 'not_owner'
+reason: Optional[str] = None
 new_expires_at: Optional[datetime] = None
 ```
+**ملاحظة:** `admin_force_revoke()` (C1) تُرجع نفس `RevokeResult` — بلا عقد جديد، فقط منطق تجاوز ملكية مختلف داخليًا.
 
-### `Moderator` (Phase 2 — منفَّذ كودًا، بانتظار إثبات حي)
+### `Moderator` — بلا تغيير
 ```python
 moderator_id: str
-external_id: str                # معرّف خارجي مجرَّد — لا علاقة بمخطط 3-5 أحرف المعلَّق (06_TODO.md #4)
+external_id: str
 display_name: Optional[str]
-can_encrypt_server: bool        # يرفض افتراضيًا (deny by default)
-can_decrypt: bool               # يرفض افتراضيًا (deny by default)
+can_encrypt_server: bool
+can_decrypt: bool
 created_at: datetime
 ```
+
+### `RepositoryNotConfigured(Exception)` — جديد (إصلاح #19)
+استثناء عام (**لا يرث من `RuntimeError`** عمدًا)، يُرفَع من `register_moderator()` و`admin_pause_all()` عند غياب المستودع الاختياري المطلوب.
+
+---
 
 ### الواجهات المجرَّدة
 ```python
 CodeRepository.create(code, key_material, label, max_devices, trial, expires_at, moderator_id=None) -> None
 CodeRepository.get(code) -> Optional[LicenseCode]
-CodeRepository.revoke(code) -> None          # Phase 2 — تحديث بسيط، فحص الملكية داخل Core حصرًا
-CodeRepository.extend(code, new_expires_at) -> None  # Phase 2 — نفس الملاحظة
+CodeRepository.revoke(code) -> None
+CodeRepository.extend(code, new_expires_at) -> None
 
 DeviceRepository.claim_device_slot(code, device_fingerprint, now) -> DeviceClaimStatus
 
-# Phase 2 — منفَّذة كودًا، بانتظار إثبات حي
 ModeratorRepository.create(moderator_id, external_id, display_name, can_encrypt_server, can_decrypt) -> None
 ModeratorRepository.get_by_external_id(external_id) -> Optional[Moderator]
+
+# جديدة (إصلاح C1)
+CodeQueryRepository.list_all_codes() -> List[str]
 ```
 
-### دوال `CipherKeepCore` الجديدة (Phase 2)
-```python
-CipherKeepCore.__init__(codes, devices, moderators=None)  # moderators اختياري — توافق خلفي كامل
+### دوال `CipherKeepCore` — كاملة، محدَّثة
 
+```python
+CipherKeepCore.__init__(codes, devices, moderators=None, admin_codes=None)
+
+# الأصلية — بلا تغيير بالسلوك
+CipherKeepCore.create_code(code, key_material, label=None, max_devices=1, trial=False, expires_at=None, moderator_id=None) -> None
+CipherKeepCore.verify_code(code, device_fingerprint, now=None) -> VerifyResult
 CipherKeepCore.revoke_code(code, moderator_id) -> RevokeResult
 CipherKeepCore.extend_code(code, moderator_id, new_expires_at) -> ExtendResult
 CipherKeepCore.register_moderator(moderator_id, external_id, display_name=None, can_encrypt_server=False, can_decrypt=False) -> None
 CipherKeepCore.resolve_moderator(external_id) -> Optional[Moderator]
+
+# جديدة (إصلاح R1)
+CipherKeepCore.check_code_validity(code, now=None) -> CodeValidityResult
+CipherKeepCore.register_device(code, device_fingerprint, now=None) -> DeviceRegistrationResult
+
+# جديدة (إصلاح C1)
+CipherKeepCore.admin_force_revoke(code) -> RevokeResult
+CipherKeepCore.admin_pause_all() -> int   # يرفع RepositoryNotConfigured لو بلا admin_codes
 ```
 
 ---
 
 ## نقاط HTTP
 
-### `POST /verify` — مُرحَّلة لـSupabase
+### `POST /verify` — مُرحَّلة لـSupabase بالكامل
 **مدخل:** `{code, device_id, ciphertext_b64}`
-
 **مخرج نجاح (200):** `{ok: true, name, source_b64}`
 
-**مخرج فشل:**
+**مخرج فشل — محدَّث (إصلاح H1 + #19):**
 | reason | HTTP | ملاحظة |
 |---|---|---|
-| `rate_limited` | 429 | فحص IP، مستوى Adapter بحت |
-| `invalid_or_revoked` | 403 | يدمج `not_found` و`revoked` من Core عمدًا |
-| `expired` | 403 | — |
-| `device_limit` | 403 | — |
+| `rate_limited` | 429 | فحص IP، Adapter بحت |
+| `invalid_or_revoked` | 403 | **يدمج `not_found` + `revoked` + `expired` معًا** الآن (كان `expired` منفصلة سابقًا) — إصلاح H1، Fail Closed كامل |
+| `device_limit` | 403 | لا يظهر إلا بعد نجاح فك تشفير فعلي (إصلاح R1 — يمنع كشفه لمهاجم بلا مفتاح صحيح) |
 | `decrypt_error` | 400 | يشمل base64 تالف أو مفتاح/بيانات غير متطابقة |
-| `server_misconfigured` | 500 | جديد — متغيرات Supabase غير مضبوطة، لا يمس نشرًا مُهيَّأ صح |
+| `server_misconfigured` | 500 | متغيرات Supabase غير مضبوطة عند الإقلاع |
+| **`backend_unavailable`** | **500** | **جديد (إصلاح #19)** — فشل اتصال/طلب فعلي بـSupabase أثناء التشغيل (لا الإقلاع)، بلا أي Stack Trace متسرّب |
 
 ### `POST /admin/create` — مُرحَّلة لـSupabase
 **مدخل:** `{label, max_devices, expire_days, trial}` + Header `X-Admin-Token`
+**مخرج:** `{ok: true, code, key_b64}` أو `{ok: false, reason}` (`unauthorized` 401 / `server_misconfigured` 500 / `backend_unavailable` 500)
 
-**مخرج:** `{ok: true, code, key_b64}` أو `{ok: false, reason}` (`unauthorized` 401 / `server_misconfigured` 500)
+### `POST /admin/revoke` — محدَّثة (إصلاح C1)
+**مدخل:** `{code}` + Header `X-Admin-Token`
+**السلوك الجديد:** تُحدِّث `licenses.json` المحلي **و**Supabase معًا (عبر `admin_force_revoke`، بلا فحص ملكية). `not_found` (404) فقط لو غير موجود بكلا المصدرين. `backend_unavailable` (500) لو فشل الاتصال الفعلي بـSupabase.
+**⚠️ حالة انتقالية:** لا يزال `licenses.json` طرفًا بالمعادلة — الحذف الكامل مهمة Phase 2 الأولى الجارية.
 
-### `POST /admin/revoke`, `POST /admin/extend`, `POST /admin/pause_all`, `GET /admin/list` — لم تُرحَّل
-تعتمد `licenses.json` المحلي حاليًا، بقرار واعٍ (`05_DECISIONS.md`). عقودها لم تتغيّر عن التصميم الأصلي.
+### `POST /admin/pause_all` — محدَّثة (إصلاح C1)
+**مدخل:** `{}` + Header `X-Admin-Token`
+**المخرج:** `{ok: true, count, supabase_count}` — `count` من `licenses.json`، `supabase_count` من `admin_pause_all()` (يعتمد على `CodeQueryRepository` مُهيَّأة).
+
+### `POST /admin/extend`, `GET /admin/list` — **لم تُرحَّلا بعد**
+لا تزالان تعتمدان `licenses.json` حصرًا. **مهمة Phase 2 الأولى الجارية.**
 
 ### `POST /admin/decrypt` — مخطَّطة (Backlog)
-مدخل موثَّق كمالك + بيانات مشفَّرة. لا يمس عداد الأجهزة، لا إشعار عميل. التفاصيل الكاملة غير محسومة بعد.
-
 ### `GET /customer/status` — مخطَّطة (Backlog)
-مدخل: الكود فقط. مخرج: حالة/انتهاء/استخدام أجهزة — أبدًا لا المفتاح نفسه. آلية Rate Limiting غير محسومة (`06_TODO.md`).
 
 ---
 
-## مخطط قاعدة البيانات (Supabase)
+## مخطط قاعدة البيانات (Supabase) — بلا تغيير بهذي الجولة
 
-### جدول `codes`
-```
-code            text PRIMARY KEY
-key_material    bytea NOT NULL   -- مشفَّر عبر pgcrypto
-label           text
-max_devices     integer NOT NULL DEFAULT 1
-trial           boolean NOT NULL DEFAULT false
-revoked         boolean NOT NULL DEFAULT false
-expires_at      timestamptz      -- NULL = بلا انتهاء
-created_at      timestamptz NOT NULL DEFAULT now()
-moderator_id    text             -- ⚠️ Phase 2، nullable، بلا FK بعد (migrations/phase2_moderator_schema_migration.sql)
-```
+جداول `codes`, `devices` كما موثَّقة سابقًا. `moderators` (Phase 2) موجودة بـ`migrations/001_phase2_moderator_schema.sql`، **غير مُطبَّقة حيًا بعد**.
 
-### جدول `devices`
-```
-id                  bigserial PRIMARY KEY
-code                text NOT NULL REFERENCES codes(code)
-device_fingerprint  text NOT NULL
-first_seen_at       timestamptz NOT NULL
-last_seen_at        timestamptz NOT NULL
-```
-
-### جدول `moderators` — ⚠️ Phase 2، منفَّذ بـSQL (`migrations/`)، لم يُطبَّق حيًا بعد
-```
-moderator_id         text PRIMARY KEY
-external_id          text NOT NULL UNIQUE
-display_name         text
-can_encrypt_server    boolean NOT NULL DEFAULT false
-can_decrypt           boolean NOT NULL DEFAULT false
-created_at            timestamptz NOT NULL DEFAULT now()
-```
-
-### دالة RPC: `ck_claim_device_slot`
-عملية ذرية (قفل صف `codes`)، ترجّع نص ثابت من ثلاث قيم مطابقة لـ`DeviceClaimStatus`. التفاصيل الكاملة والمنطق بـ`01_ARCHITECTURE.md` القسم 5.
-
-### دوال RPC إدارية — Phase 2 (⚠️ SQL جاهز بـ`migrations/`، لم يُطبَّق حيًا بعد)
-- `ck_revoke_code(p_code)` — تحديث بسيط (`revoked=true`)، بلا فحص ملكية (يحدث داخل Core قبل الاستدعاء)
-- `ck_extend_code(p_code, p_new_expires_at)` — تحديث بسيط، نفس الملاحظة أعلاه
-- `ck_register_moderator(p_moderator_id, p_external_id, p_display_name, p_can_encrypt_server, p_can_decrypt)`
-- `ck_get_moderator_by_external_id(p_external_id)`
+### دوال RPC — بلا إضافة جديدة بهذي الجولة الأمنية
+كل إصلاحات R1/C1/H1-H6/L1-L2/#19 نُفِّذت **حصرًا على مستوى Python** — صفر لمسة لمخطط قاعدة البيانات أو RPC جديدة.
